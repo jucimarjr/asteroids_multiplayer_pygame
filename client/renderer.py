@@ -6,7 +6,7 @@ import pygame as pg
 
 from client.camera import Camera
 from core import config as C
-from core.entities import UFO, Asteroid, Bullet, FreezePowerup, LaserBeam, LaserPowerup, Particle, Ship, Shrapnel
+from core.entities import UFO, Asteroid, Bullet, FreezePowerup, LaserBeam, LaserPowerup, Particle, Ship, Shrapnel, GiantBullet, GiantShotPowerup
 from core.scene import SceneState
 from core.utils import Vec, angle_to_vec
 
@@ -62,6 +62,11 @@ class Renderer:
             self._draw_ufo(ufo, frozen=frozen)
         for powerup in getattr(world, "powerups", []):
             self._draw_powerup(powerup)
+        for gp in getattr(world, "giant_shot_powerups", []):
+            self._draw_giant_shot_powerup(gp)
+
+        for gb in getattr(world, "giant_bullets", []):
+            self._draw_giant_bullet(gb)
         for fp in getattr(world, "freeze_powerups", []):
             self._draw_freeze_powerup(fp)
         for laser in getattr(world, "lasers", []):
@@ -185,7 +190,8 @@ class Renderer:
         # handful of pixels). Player camera has scale=1.0 and never
         # hits the clamp.
         visual_r = max(
-            ship.r * self.camera.scale, self.config.MIN_SHIP_VISUAL_R
+            ship.current_r * self.camera.scale,
+            self.config.MIN_SHIP_VISUAL_R,
         )
 
         dirv = angle_to_vec(ship.angle)
@@ -209,6 +215,33 @@ class Renderer:
             )
         if ship.laser.active:
             self._draw_laser_countdown(cx, cy, visual_r, ship.laser.remaining)
+        if ship.giant.active:
+            GREEN = (50, 220, 50)
+            pulse = math.sin(ship.giant.remaining * math.pi * 4) * 3
+            giant_r = int(visual_r + 8 + pulse)
+
+            pg.draw.circle(
+                self.screen,
+                GREEN,
+                (cx, cy),
+                giant_r,
+                width=2,
+            )
+        if ship.has_giant_shot:
+            GREEN = (50, 220, 50)
+
+            dirv = angle_to_vec(ship.angle)
+
+            tip_x = cx + dirv.x * (visual_r + 8)
+            tip_y = cy + dirv.y * (visual_r + 8)
+
+            pg.draw.circle(
+                self.screen,
+                GREEN,
+                (int(tip_x), int(tip_y)),
+                4,
+                width=0,
+            )
 
     def _draw_ship_name(self, ship: Ship, world: object) -> None:
         """Render the display name centered just below the ship.
@@ -222,7 +255,7 @@ class Renderer:
             return
         color = color_for_player(ship.player_id, self.config.PLAYER_COLORS)
         label = self.font.render(name, True, color)
-        anchor_world = Vec(ship.pos.x, ship.pos.y + ship.r + 4)
+        anchor_world = Vec(ship.pos.x, ship.pos.y + ship.current_r + 4)
         sx, sy = self.camera.world_to_screen(anchor_world)
         sx -= label.get_width() // 2
         self.screen.blit(label, (sx, sy))
@@ -238,6 +271,52 @@ class Renderer:
         half = r // 2
         pg.draw.line(self.screen, CYAN, (cx - half, cy), (cx + half, cy), 1)
         pg.draw.line(self.screen, CYAN, (cx, cy - half), (cx, cy + half), 1)
+    def _draw_giant_shot_powerup(
+        self,
+        powerup: GiantShotPowerup,
+    ) -> None:
+        GREEN = (50, 220, 50)
+
+        cx, cy = self.camera.world_to_screen(powerup.pos)
+
+        base_r = max(int(powerup.r * self.camera.scale), 5)
+
+        pulse = math.sin(powerup.ttl * math.pi * 3) * 0.2 + 0.8
+
+        r = max(4, int(base_r * pulse))
+
+        pg.draw.circle(
+            self.screen,
+            GREEN,
+            (cx, cy),
+            r,
+            width=2,
+        )
+
+        label = self.font.render("G", True, GREEN)
+
+        self.screen.blit(
+            label,
+            (
+                cx - label.get_width() // 2,
+                cy - label.get_height() // 2,
+            ),
+        )
+
+    def _draw_giant_bullet(self,bullet: GiantBullet, ) -> None:
+        GREEN = (50, 220, 50)
+
+        center = self.camera.world_to_screen(bullet.pos)
+
+        r = max(2, int(bullet.r * self.camera.scale))
+
+        pg.draw.circle(
+            self.screen,
+            GREEN,
+            center,
+            r,
+            width=0,
+        )
 
     def _draw_freeze_powerup(self, powerup: FreezePowerup) -> None:
         """Draw the freeze powerup as a cyan circle with an 'F' label."""
@@ -250,7 +329,6 @@ class Renderer:
             label,
             (cx - label.get_width() // 2, cy - label.get_height() // 2),
         )
-        
     def _draw_laser_beam(self, laser: LaserBeam) -> None:
         """Draw the laser beam, fading out as TTL expires."""
         color = color_for_player(laser.owner_id, self.config.PLAYER_COLORS)

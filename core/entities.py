@@ -214,6 +214,71 @@ class FreezePowerup(Entity):
                 self.state = "down"
             self.idle_time = 1.0
 
+class GiantShotPowerup(Entity):
+    """Collectible powerup that grants the ship one Giant Shot bullet.
+
+    The Giant Shot does not kill the target — instead it inflicts the
+    'giant' debuff: the victim grows to GIANT_SHOT_SCALE× its normal
+    size and slows to GIANT_SHOT_SPEED_MULT of its max speed for
+    GIANT_SHOT_DURATION seconds, making it an enormous easy target.
+    """
+
+    __slots__ = ("pos", "vel", "ttl", "r")
+
+    def __init__(
+        self,
+        pos: Vec,
+        vel: Vec,
+        ttl: float = C.GIANT_SHOT_POWERUP_TTL,
+    ) -> None:
+        super().__init__()
+        self.pos = Vec(pos)
+        self.vel = Vec(vel)
+        self.ttl = float(ttl)
+        self.r = int(C.GIANT_SHOT_POWERUP_RADIUS)
+
+    def update(self, dt: float) -> None:
+        self.pos += self.vel * dt
+        self.pos = wrap_pos(self.pos)
+        self.ttl -= dt
+        if self.ttl <= 0.0:
+            self.kill()
+
+
+class GiantBullet(Entity):
+    """Special projectile fired when the ship has collected a GiantShotPowerup.
+
+    On impact with an enemy ship, instead of killing it, this bullet
+    activates the 'giant' debuff: the target grows 3× and slows down
+    for GIANT_SHOT_DURATION seconds. The bullet does NOT interact with
+    asteroids or UFOs — it passes through them harmlessly.
+
+    Like regular Bullet, it does NOT wrap the screen (bounded by TTL).
+    """
+
+    __slots__ = ("owner_id", "pos", "vel", "ttl", "r")
+
+    def __init__(
+        self,
+        owner_id: PlayerId,
+        pos: Vec,
+        vel: Vec,
+        ttl: float = C.GIANT_SHOT_BULLET_TTL,
+    ) -> None:
+        super().__init__()
+        self.owner_id = owner_id
+        self.pos = Vec(pos)
+        self.vel = Vec(vel)
+        self.ttl = float(ttl)
+        self.r = int(C.GIANT_SHOT_BULLET_RADIUS)
+
+    def update(self, dt: float) -> None:
+        self.pos += self.vel * dt
+        self.ttl -= dt
+        if self.ttl <= 0.0:
+            self.kill()
+
+
 class Asteroid(Entity):
     """Asteroid with irregular polygon shape.
 
@@ -280,6 +345,8 @@ class Ship(Entity):
         "shield_cd",
         "r",
         "laser",
+        "giant",          # Countdown: debuff de tamanho recebido por Giant Shot
+        "has_giant_shot", # bool: True quando a nave tem o tiro especial carregado
     )
 
     def __init__(self, player_id: PlayerId, pos: Vec) -> None:
@@ -295,13 +362,15 @@ class Ship(Entity):
         self.shield_cd = Countdown()
         self.r = int(C.SHIP_RADIUS)
         self.laser = Countdown()
+        self.giant = Countdown()      # inativo por padrão (remaining = 0.0)
+        self.has_giant_shot = False   # False até coletar o GiantShotPowerup
 
     def apply_command(
         self,
         cmd: PlayerCommand,
         dt: float,
         bullets: list[Bullet],
-    ) -> "Bullet | LaserBeam | None":
+    ) -> "Bullet | LaserBeam | GiantBullet | None":
         if cmd.rotate_left and not cmd.rotate_right:
             self.angle -= C.SHIP_TURN_SPEED * dt
         elif cmd.rotate_right and not cmd.rotate_left:
@@ -317,12 +386,19 @@ class Ship(Entity):
 
         return None
 
-    def _try_fire(self, bullets: list[Bullet]) -> "Bullet | LaserBeam | None":
+    def _try_fire(self, bullets: list[Bullet]) -> "Bullet | LaserBeam | GiantBullet | None":
         if self.cool.active:
             return None
 
         dirv = angle_to_vec(self.angle)
         spawn = self.pos + dirv * (self.r + C.BULLET_SPAWN_OFFSET)
+
+
+        if self.has_giant_shot:
+            self.has_giant_shot = False
+            vel = self.vel + dirv * C.GIANT_SHOT_BULLET_SPEED
+            self.cool.reset(C.SHIP_FIRE_RATE)
+            return GiantBullet(self.player_id, spawn, vel)
 
         if self.laser.active:
             end = _laser_end_pos(spawn, dirv)
@@ -351,25 +427,51 @@ class Ship(Entity):
         self.shield_cd.reset(C.SHIELD_COOLDOWN)
         return True
 
+    @property
+    def current_r(self) -> float:
+        """Effective collision radius, scaled when the giant debuff is active.
+
+        Used by CollisionManager in place of the raw `self.r` so that a
+        ship under the Giant Shot debuff has a proportionally larger hitbox.
+        Normal ships (giant.active == False) return plain self.r.
+        """
+        if self.giant.active:
+            return self.r * C.GIANT_SHOT_SCALE
+        return float(self.r)
+
     def update(self, dt: float) -> None:
         self.cool.tick(dt)
         self.invuln.tick(dt)
         self.shield.tick(dt)
         self.shield_cd.tick(dt)
         self.laser.tick(dt)
+        self.giant.tick(dt)
+
+        # Quando sob efeito giant, cap a velocidade para simular lentidão.
+        # A nave vítima fica pesada e difícil de manobrar além de ser enorme.
+        if self.giant.active:
+            max_spd = C.SHIP_THRUST * C.GIANT_SHOT_SPEED_MULT
+            spd = self.vel.length()
+            if spd > max_spd:
+                self.vel = self.vel.normalize() * max_spd
 
         self.pos += self.vel * dt
         self.pos = wrap_pos(self.pos)
 
     def ship_points(self) -> tuple[Vec, Vec, Vec]:
-        """Return the 3 vertices of the ship triangle."""
+        """Return the 3 vertices of the ship triangle.
+
+        Uses current_r so the drawn triangle matches the collision radius
+        when the giant debuff is active.
+        """
         dirv = angle_to_vec(self.angle)
         left = angle_to_vec(self.angle + C.SHIP_NOSE_ANGLE)
         right = angle_to_vec(self.angle - C.SHIP_NOSE_ANGLE)
 
-        p1 = self.pos + dirv * self.r
-        p2 = self.pos + left * self.r * C.SHIP_NOSE_SCALE
-        p3 = self.pos + right * self.r * C.SHIP_NOSE_SCALE
+        cr = self.current_r
+        p1 = self.pos + dirv * cr
+        p2 = self.pos + left * cr * C.SHIP_NOSE_SCALE
+        p3 = self.pos + right * cr * C.SHIP_NOSE_SCALE
         return p1, p2, p3
 
 

@@ -12,7 +12,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.entities import UFO, Asteroid, Bullet, FreezePowerup, LaserBeam, LaserPowerup, Ship
+from core.entities import (
+    UFO,
+    Asteroid,
+    Bullet,
+    FreezePowerup,
+    GiantBullet,
+    GiantShotPowerup,
+    LaserBeam,
+    LaserPowerup,
+    Ship,
+)
 from core.utils import Countdown, Vec
 from core.world import World
 
@@ -29,6 +39,10 @@ def snapshot_to_world(snap: dict[str, Any], world: World) -> None:
         Bullet(b["owner_id"], Vec(b["x"], b["y"]), Vec(b["vx"], b["vy"]))
         for b in snap["bullets"]
     ]
+    world.giant_bullets = [
+        GiantBullet(b["owner_id"], Vec(b["x"], b["y"]), Vec(b["vx"], b["vy"]))
+        for b in snap.get("giant_bullets", [])
+    ]
     world.asteroids = [
         Asteroid(
             Vec(a["x"], a["y"]),
@@ -44,6 +58,12 @@ def snapshot_to_world(snap: dict[str, Any], world: World) -> None:
         LaserPowerup(Vec(p["x"], p["y"]), Vec(p["vx"], p["vy"]), ttl=p["ttl"])
         for p in snap.get("powerups", [])
     ]
+    world.giant_shot_powerups = [
+        GiantShotPowerup(
+            Vec(p["x"], p["y"]), Vec(p["vx"], p["vy"]), ttl=p["ttl"]
+        )
+        for p in snap.get("giant_shot_powerups", [])
+    ]
     world.freeze_powerups = [
         FreezePowerup(Vec(fp["x"], fp["y"]), ttl=fp["ttl"])
         for fp in snap.get("freeze_powerups", [])
@@ -51,7 +71,11 @@ def snapshot_to_world(snap: dict[str, Any], world: World) -> None:
     world.freeze_timer.reset(snap.get("freeze_remaining", 0.0))
     for ev in snap.get("laser_events", []):
         world.lasers.append(
-            LaserBeam(ev["owner_id"], Vec(ev["x"], ev["y"]), Vec(ev["ex"], ev["ey"]))
+            LaserBeam(
+                ev["owner_id"],
+                Vec(ev["x"], ev["y"]),
+                Vec(ev["ex"], ev["ey"]),
+            )
         )
 
     world.scores = {int(pid): score for pid, score in snap["scores"].items()}
@@ -95,6 +119,8 @@ def _apply_ships(ships_snap: list[dict[str, Any]], world: World) -> None:
         ship.invuln.reset(_ACTIVE_PULSE if s["invuln_active"] else 0.0)
         ship.shield_cd.reset(s["shield_cd_remaining"])
         ship.laser.reset(s.get("laser_remaining", 0.0))
+        ship.giant.reset(s.get("giant_remaining", 0.0))
+        ship.has_giant_shot = s.get("has_giant_shot", False)
         new_ships[pid] = ship
     world.ships = new_ships
 

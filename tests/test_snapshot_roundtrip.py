@@ -1,7 +1,7 @@
 """Tests for snapshot_to_world reconstruction and command codec."""
 
 from core.commands import PlayerCommand
-from core.entities import Ship
+from core.entities import GiantBullet, GiantShotPowerup, Ship
 from core.utils import Vec
 from core.world import World
 from multiplayer.command_codec import command_to_dict, dict_to_command
@@ -10,6 +10,7 @@ from multiplayer.snapshot import snapshot_to_world
 EMPTY_SNAPSHOT = {
     "ships": [],
     "bullets": [],
+    "giant_bullets": [],
     "asteroids": [],
     "ufos": [],
     "scores": {},
@@ -18,6 +19,7 @@ EMPTY_SNAPSHOT = {
     "frags": {},
     "respawning": [],
     "events": [],
+    "giant_shot_powerups": [],
     "audio_events": [],
     "names": {},
     "match_state": "running",
@@ -67,6 +69,36 @@ def test_snapshot_to_world_creates_ship_for_new_player_id():
     assert s.invuln.active
     assert not s.shield.active
     assert s.shield_cd.remaining == 0.5
+    assert not s.giant.active
+    assert not s.has_giant_shot
+
+
+def test_snapshot_to_world_applies_giant_ship_state():
+    w = World(spawn_default_player=False)
+    snap = _snapshot(
+        ships=[
+            {
+                "player_id": 7,
+                "x": 100,
+                "y": 200,
+                "angle": 45.0,
+                "vx": 1,
+                "vy": 2,
+                "shield_active": False,
+                "invuln_active": False,
+                "shield_cd_remaining": 0.0,
+                "giant_remaining": 3.5,
+                "has_giant_shot": True,
+            }
+        ]
+    )
+
+    snapshot_to_world(snap, w)
+
+    ship = w.ships[7]
+    assert ship.giant.active
+    assert ship.giant.remaining == 3.5
+    assert ship.has_giant_shot is True
 
 
 def test_snapshot_to_world_reuses_existing_ship_object():
@@ -120,6 +152,35 @@ def test_snapshot_to_world_rebuilds_bullets():
     assert b.owner_id == 9
     assert (b.pos.x, b.pos.y) == (10, 20)
     assert (b.vel.x, b.vel.y) == (5, 6)
+
+
+def test_snapshot_to_world_rebuilds_giant_shot_entities():
+    w = World(spawn_default_player=False)
+    snapshot_to_world(
+        _snapshot(
+            giant_shot_powerups=[
+                {"x": 10, "y": 20, "vx": 1, "vy": 2, "ttl": 9.5}
+            ],
+            giant_bullets=[
+                {"owner_id": 9, "x": 30, "y": 40, "vx": 5, "vy": 6}
+            ],
+        ),
+        w,
+    )
+
+    assert len(w.giant_shot_powerups) == 1
+    powerup = w.giant_shot_powerups[0]
+    assert isinstance(powerup, GiantShotPowerup)
+    assert (powerup.pos.x, powerup.pos.y) == (10, 20)
+    assert (powerup.vel.x, powerup.vel.y) == (1, 2)
+    assert powerup.ttl == 9.5
+
+    assert len(w.giant_bullets) == 1
+    bullet = w.giant_bullets[0]
+    assert isinstance(bullet, GiantBullet)
+    assert bullet.owner_id == 9
+    assert (bullet.pos.x, bullet.pos.y) == (30, 40)
+    assert (bullet.vel.x, bullet.vel.y) == (5, 6)
 
 
 def test_snapshot_to_world_rebuilds_asteroids_with_size():

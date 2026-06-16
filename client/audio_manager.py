@@ -43,6 +43,10 @@ class AudioManager:
                 self._sfx_ch.play(self.sounds.laser_pickup)
             elif ev == "laser_shoot":
                 self._sfx_ch.play(self.sounds.laser_shoot)
+            elif ev == "giant_shot_pickup":
+                self._sfx_ch.play(self.sounds.giant_shot_pickup)
+            elif ev == "giant_shot_fire":
+                self._sfx_ch.play(self.sounds.giant_shot_fire)
 
     def update_thrust(self, active: bool) -> None:
         if self.muted or not active:

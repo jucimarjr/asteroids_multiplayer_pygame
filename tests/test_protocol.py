@@ -2,7 +2,13 @@
 
 import json
 
-from core.entities import UFO, Bullet, Particle
+from core.entities import (
+    UFO,
+    Bullet,
+    GiantBullet,
+    GiantShotPowerup,
+    Particle,
+)
 from core.utils import Vec
 from core.world import World
 from server import protocol
@@ -82,6 +88,7 @@ def test_world_to_snapshot_has_required_keys():
     assert set(snap.keys()) == {
         "ships",
         "bullets",
+        "giant_bullets",
         "asteroids",
         "ufos",
         "scores",
@@ -90,6 +97,11 @@ def test_world_to_snapshot_has_required_keys():
         "frags",
         "respawning",
         "events",
+        "powerups",
+        "giant_shot_powerups",
+        "freeze_powerups",
+        "freeze_remaining",
+        "laser_events",
         "audio_events",
         "names",
         "match_state",
@@ -121,6 +133,9 @@ def test_snapshot_ship_fields_match_renderer_needs():
         "shield_active",
         "invuln_active",
         "shield_cd_remaining",
+        "laser_remaining",
+        "giant_remaining",
+        "has_giant_shot",
     }
     assert ship["player_id"] == 1
 
@@ -153,6 +168,29 @@ def test_snapshot_bullet_fields():
         "vx": 5,
         "vy": 6,
     }
+
+
+def test_snapshot_giant_shot_fields():
+    w = World(spawn_default_player=False)
+    w.spawn_player(3)
+    ship = w.ships[3]
+    ship.giant.reset(4.6)
+    ship.has_giant_shot = True
+    w.giant_shot_powerups.append(
+        GiantShotPowerup(Vec(100, 200), Vec(1, 2), ttl=9.5)
+    )
+    w.giant_bullets.append(GiantBullet(3, Vec(50, 60), Vec(5, 6)))
+
+    snap = world_to_snapshot(w)
+
+    assert snap["ships"][0]["giant_remaining"] == 4.6
+    assert snap["ships"][0]["has_giant_shot"] is True
+    assert snap["giant_shot_powerups"] == [
+        {"x": 100, "y": 200, "vx": 1, "vy": 2, "ttl": 9.5}
+    ]
+    assert snap["giant_bullets"] == [
+        {"owner_id": 3, "x": 50, "y": 60, "vx": 5, "vy": 6}
+    ]
 
 
 def test_snapshot_ufo_carries_small_flag():

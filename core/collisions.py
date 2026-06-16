@@ -11,6 +11,8 @@ from core.entities import (
     Asteroid,
     Bullet,
     FreezePowerup,
+    GiantBullet,
+    GiantShotPowerup,
     LaserBeam,
     LaserPowerup,
     PlayerId,
@@ -56,6 +58,10 @@ class CollisionResult:
     particles_to_spawn: list[tuple[Vec, str]] = field(default_factory=list)
     # (player_id, powerup_pos) pairs for each laser powerup collected this tick.
     powerup_pickups: list[tuple[PlayerId, Vec]] = field(default_factory=list)
+    # (player_id, powerup_pos) for each giant-shot powerup collected
+    giant_shot_pickups: list[tuple[PlayerId, Vec]] = field(default_factory=list)
+    # (shooter_id, victim_id) for each giant bullet that hit an enemy ship
+    giant_shot_hits: list[tuple[PlayerId, PlayerId]] = field(default_factory=list)
     powerups_to_apply: list[str] = field(default_factory=list)
     freeze_powerups_to_spawn: list[Vec] = field(default_factory=list)
     # (position, velocity) pairs for shrapnel fragments from red asteroids.
@@ -73,9 +79,15 @@ class CollisionManager:
         ufos: list[UFO],
         powerups: list[LaserPowerup] | None = None,
         lasers: list[LaserBeam] | None = None,
-        freeze_powerups: list[FreezePowerup] | None = None
+        giant_shot_powerups: list[GiantShotPowerup] | None = None,
+        giant_bullets: list[GiantBullet] | None = None,
+        freeze_powerups: list[FreezePowerup] | None = None,
     ) -> CollisionResult:
         result = CollisionResult()
+        if giant_shot_powerups is not None:
+            self._ship_vs_giant_shot_powerups(ships, giant_shot_powerups, result)
+        if giant_bullets:
+            self._giant_bullet_vs_ships(ships, giant_bullets, result)
         if powerups is not None:
             self._ship_vs_powerups(ships, powerups, result)
         if freeze_powerups is not None:
@@ -242,7 +254,7 @@ class CollisionManager:
             for ast in asteroids:
                 if not ast.alive:
                     continue
-                if (ast.pos - ship.pos).length() < (ast.r + ship.r):
+                if (ast.pos - ship.pos).length() < (ast.r + ship.current_r):
                     if ship.shield.active:
                         # Shield deflects: asteroid splits, no score,
                         # ship survives.
@@ -264,7 +276,7 @@ class CollisionManager:
             for ufo in ufos:
                 if not ufo.alive:
                     continue
-                if (ufo.pos - ship.pos).length() < (ufo.r + ship.r):
+                if (ufo.pos - ship.pos).length() < (ufo.r + ship.current_r):
                     self._destroy_ufo(ufo, result)
 
     def _ship_vs_ufo_bullets(
@@ -279,7 +291,7 @@ class CollisionManager:
             for bullet in bullets:
                 if not bullet.alive or bullet.owner_id != UFO_BULLET_OWNER:
                     continue
-                if (bullet.pos - ship.pos).length() < (bullet.r + ship.r):
+                if (bullet.pos - ship.pos).length() < (bullet.r + ship.current_r):
                     bullet.kill()
                     if ship.shield.active:
                         continue
@@ -305,7 +317,7 @@ class CollisionManager:
                     continue
                 if bullet.owner_id == ship.player_id:
                     continue
-                if (bullet.pos - ship.pos).length() < (bullet.r + ship.r):
+                if (bullet.pos - ship.pos).length() < (bullet.r + ship.current_r):
                     bullet.kill()
                     if ship.shield.active:
                         continue
@@ -330,7 +342,7 @@ class CollisionManager:
             if not powerup.alive:
                 continue
             for ship in ships.values():
-                if (ship.pos - powerup.pos).length() < (ship.r + powerup.r):
+                if (ship.pos - powerup.pos).length() < (ship.current_r + powerup.r):
                     powerup.kill()
                     result.powerup_pickups.append(
                         (ship.player_id, Vec(powerup.pos))
@@ -407,7 +419,7 @@ class CollisionManager:
                     continue
                 if ship.invuln.active or ship.shield.active:
                     continue
-                if _segment_circle_hit(laser.pos, laser.end_pos, ship.pos, float(ship.r)):
+                if _segment_circle_hit(laser.pos, laser.end_pos, ship.pos, float(ship.current_r)):
                     result.score_deltas[laser.owner_id] = (
                         result.score_deltas.get(laser.owner_id, 0) + C.FRAG_SCORE
                     )
@@ -415,6 +427,56 @@ class CollisionManager:
                         result.frag_deltas.get(laser.owner_id, 0) + 1
                     )
                     result.ship_deaths.append(ship.player_id)
+
+    def _ship_vs_giant_shot_powerups(
+        self,
+        ships: dict[PlayerId, Ship],
+        powerups: list[GiantShotPowerup],
+        result: CollisionResult,
+    ) -> None:
+        for powerup in powerups:
+            if not powerup.alive:
+                continue
+
+            for ship in ships.values():
+                if (ship.pos - powerup.pos).length() < (ship.r + powerup.r):
+                    powerup.kill()
+                    result.giant_shot_pickups.append(
+                        (ship.player_id, Vec(powerup.pos))
+                    )
+                    break
+
+                
+    def _giant_bullet_vs_ships(
+        self,
+        ships: dict[PlayerId, Ship],
+        giant_bullets: list[GiantBullet],
+        result: CollisionResult,
+    ) -> None:
+        """GiantBullet hits an enemy ship: apply giant debuff, do NOT kill.
+
+        The bullet is destroyed on impact. The victim receives the giant
+        debuff (enlarged hitbox + slowed speed) for GIANT_SHOT_DURATION
+        seconds. The shooter's own ship is always skipped.
+        Invulnerable ships and ships with an active shield are immune.
+        """
+        from core import config as C  # avoid top-level circular dependency
+
+        for gb in giant_bullets:
+            if not gb.alive:
+                continue
+            for ship in ships.values():
+                if ship.player_id == gb.owner_id:
+                    continue
+                if ship.invuln.active or ship.shield.active:
+                    continue
+                if (ship.pos - gb.pos).length() < (ship.current_r + gb.r):
+                    gb.kill()
+                    ship.giant.reset(C.GIANT_SHOT_DURATION)
+                    ship.vel = ship.vel * C.GIANT_SHOT_SPEED_MULT
+                    result.giant_shot_hits.append((gb.owner_id, ship.player_id))
+                    result.events.append("giant_shot_hit")
+                    break
 
     def resolve_shrapnel(
         self,

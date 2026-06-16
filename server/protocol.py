@@ -118,6 +118,8 @@ def world_to_snapshot(
                 "invuln_active": s.invuln.active,
                 "shield_cd_remaining": _r(s.shield_cd.remaining),
                 "laser_remaining": _r(s.laser.remaining),
+                "giant_remaining": _r(s.giant.remaining),
+                "has_giant_shot": s.has_giant_shot,
             }
             for s in world.ships.values()
         ],
@@ -130,6 +132,16 @@ def world_to_snapshot(
                 "vy": _r(b.vel.y),
             }
             for b in world.bullets
+        ],
+        "giant_bullets": [
+            {
+                "owner_id": b.owner_id,
+                "x": _r(b.pos.x),
+                "y": _r(b.pos.y),
+                "vx": _r(b.vel.x),
+                "vy": _r(b.vel.y),
+            }
+            for b in world.giant_bullets
         ],
         "asteroids": [
             {
@@ -173,7 +185,17 @@ def world_to_snapshot(
             }
             for p in world.powerups
         ],
-         "freeze_powerups": [
+        "giant_shot_powerups": [
+            {
+                "x": _r(p.pos.x),
+                "y": _r(p.pos.y),
+                "vx": _r(p.vel.x),
+                "vy": _r(p.vel.y),
+                "ttl": _r(p.ttl),
+            }
+            for p in world.giant_shot_powerups
+        ],
+        "freeze_powerups": [
             {
                 "x": _r(fp.pos.x),
                 "y": _r(fp.pos.y),

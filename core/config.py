@@ -142,6 +142,17 @@ LASER_DURATION = 8.0
 LASER_BEAM_TTL = 0.15
 LASER_FIRE_RATE = 0.5
 
+# Giant Shot powerup — tiro especial que aplica debuff de tamanho na vítima
+GIANT_SHOT_POWERUP_RADIUS = 14          # raio de coleta do item no chão (px)
+GIANT_SHOT_POWERUP_TTL = 15.0           # tempo (s) que o item fica no chão
+GIANT_SHOT_POWERUP_SPAWN_EVERY = 30.0   # intervalo (s) entre spawns do item
+GIANT_SHOT_DURATION = 5.0               # duração (s) do debuff na vítima
+GIANT_SHOT_SCALE = 3.0                  # fator de ampliação da vítima (3× maior)
+GIANT_SHOT_SPEED_MULT = 0.4             # fração da velocidade máxima da vítima
+GIANT_SHOT_BULLET_SPEED = 350.0         # velocidade (px/s) do projétil especial
+GIANT_SHOT_BULLET_TTL = 1.5             # tempo de vida (s) do projétil especial
+GIANT_SHOT_BULLET_RADIUS = 5            # raio de colisão do projétil especial
+
 # Freeze powerup
 FREEZE_POWERUP_TTL = 20.0
 FREEZE_DURATION = 3.0
@@ -163,6 +174,8 @@ UFO_SIREN_BIG = "ufo_siren_big.wav"
 UFO_SIREN_SMALL = "ufo_siren_small.wav"
 LASER_PICKUP = "laser_pickup.wav"
 LASER_SHOOT = "laser_shoot.wav"
+GIANT_SHOT_PICKUP = "giant_shot_pickup.wav"
+GIANT_SHOT_FIRE = "giant_shot_fire.wav"
 RED_EXPLOSION = "bomb_explosion.wav"
 
 # Red Meteor
